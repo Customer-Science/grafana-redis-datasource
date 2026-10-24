@@ -1,5 +1,12 @@
 # Redis Data Source for Grafana
 
+> **This is a fork, maintained until a fixed release reaches the Grafana catalogue.** The catalogue's
+> Redis Data Source (2.2.0, July 2023) is built with a 2023 Go standard library and dependencies, and
+> scanners report over a hundred known vulnerabilities in each of its binaries. This fork builds the same
+> plugin, with the same id and behaviour, from current dependencies and a pinned Go toolchain, and
+> offers every change upstream. [FORK.md](FORK.md) has the problem, what changed, the results, and how
+> to build and install it. The rest of this README is the upstream project's own.
+
 ![Dashboard](https://raw.githubusercontent.com/RedisGrafana/grafana-redis-datasource/master/src/img/redis-dashboard.png)
 
 [![Grafana 8](https://img.shields.io/badge/Grafana-8-orange)](https://www.grafana.com)

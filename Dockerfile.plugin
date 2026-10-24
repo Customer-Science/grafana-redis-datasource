@@ -1,0 +1,48 @@
+# Builds an installable plugin directory from this checkout:
+#
+#   docker build -f Dockerfile.plugin --output type=local,dest=out .
+#
+# leaves out/redis-datasource/, ready to copy into Grafana's plugins directory. See FORK.md.
+#
+# The backend is compiled here, with the Go toolchain go.mod declares. The frontend is the upstream
+# v2.2.1 release's own, checked by SHA-256: no scanner flags it, and rebuilding it needs a retired
+# toolchain. Every input is pinned (images by digest, the archive by hash), so the same commit builds
+# the same plugin.
+ARG GO_IMAGE=golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc
+ARG UNZIP_IMAGE=busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+
+FROM ${UNZIP_IMAGE} AS frontend
+ARG FRONTEND_URL=https://github.com/RedisGrafana/grafana-redis-datasource/releases/download/v2.2.1/redis-datasource-2.2.1.zip
+ARG FRONTEND_SHA256=d27eabad1d5ec954ec58d95d27c14a2f727e997a4f8f19793dccaa0c86aec43e
+ADD ${FRONTEND_URL} /tmp/frontend.zip
+# The release's binaries and signed manifest are dropped: the binaries are what this build replaces, and
+# a manifest naming files that are no longer there makes Grafana refuse the plugin as modified.
+RUN set -eu; \
+    echo "${FRONTEND_SHA256}  /tmp/frontend.zip" | sha256sum -c -; \
+    mkdir /out; cd /out; unzip -q /tmp/frontend.zip; \
+    [ -f redis-datasource/plugin.json ] && [ -f redis-datasource/module.js ] || { echo "the frontend archive no longer holds plugin.json and module.js at redis-datasource/" >&2; exit 1; }; \
+    rm -f redis-datasource/MANIFEST.txt redis-datasource/go_plugin_build_manifest redis-datasource/redis-datasource_*
+
+# The toolchain image must BE the toolchain go.mod declares: a Go binary carries the standard library it
+# was linked against, and GOTOOLCHAIN=local makes a mismatch stop the build instead of quietly
+# downloading a different compiler. Build info is kept, so scanners can see the modules each binary links.
+FROM ${GO_IMAGE} AS backend
+ARG PLATFORMS="linux/amd64 linux/arm64"
+ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOFLAGS=-mod=readonly
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY pkg ./pkg
+COPY LICENSE NOTICE ./
+RUN set -eu; \
+    declared="$(awk '$1 == "toolchain" { print $2 }' go.mod | tr -d '[:space:]')"; actual="$(go env GOVERSION)"; \
+    [ -n "$declared" ] && [ "$declared" = "$actual" ] || { echo "go.mod declares toolchain '$declared' and the build image is $actual" >&2; exit 1; }; \
+    for platform in $PLATFORMS; do \
+      os="${platform%/*}"; arch="${platform#*/}"; ext=""; [ "$os" = windows ] && ext=".exe"; \
+      GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "/out/redis-datasource_${os}_${arch}${ext}" ./pkg; \
+    done; \
+    cp LICENSE NOTICE /out/
+
+FROM scratch
+COPY --from=frontend /out/redis-datasource /redis-datasource
+COPY --from=backend /out/ /redis-datasource/
