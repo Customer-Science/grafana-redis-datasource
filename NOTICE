@@ -1,0 +1,5 @@
+This is a modified build of the Redis Data Source for Grafana,
+https://github.com/RedisGrafana/grafana-redis-datasource, licensed under the
+Apache License 2.0 (see LICENSE).
+
+Modified by Customer Science: dependency and Go toolchain updates, offered upstream.
